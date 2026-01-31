@@ -159,29 +159,42 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             except:
                 location = "Wrocław"
             
-            # Try to get area and rooms from card content - look for spans with specific text
+            # Try to get area and rooms from card content
             try:
-                # Look for all text in the card
+                # Get all text from card
                 card_text = card.text.lower()
                 
-                # Parse area from any text (look for "X m²" or "X m2")
-                area_match = re.search(r'(\d+[,.]?\d*)\s*m[²2]', card_text)
-                area = extract_number(area_match.group(1)) if area_match else None
-                
-                # Parse rooms - look for "X pokoi" or "X pokoje" or "X-pokojowe"
-                rooms_patterns = [
-                    r'(\d+)[-\s]*poko[ij]',  # "2 pokoje", "2-pokojowe"
-                    r'(\d+)\s*rooms?',       # "2 rooms"
-                ]
+                # Try to find structured data first (like "Liczba pokoi: 2")
+                # Look for rooms in structured format
                 rooms = None
-                for pattern in rooms_patterns:
-                    rooms_match = re.search(pattern, card_text)
-                    if rooms_match:
-                        rooms = int(extract_number(rooms_match.group(1)))
-                        break
+                rooms_structured = re.search(r'liczba pokoi[:\s]*(\d+)', card_text)
+                if rooms_structured:
+                    rooms = int(extract_number(rooms_structured.group(1)))
+                else:
+                    # Fallback: look for "X pokoi" or "X pokoje" or "X-pokojowe" in general text
+                    rooms_patterns = [
+                        r'(\d+)[-\s]*poko[ij]',  # "2 pokoje", "2-pokojowe"
+                        r'(\d+)\s*rooms?',       # "2 rooms"
+                    ]
+                    for pattern in rooms_patterns:
+                        rooms_match = re.search(pattern, card_text)
+                        if rooms_match:
+                            rooms = int(extract_number(rooms_match.group(1)))
+                            break
                 
-                # Check elevator in any text
-                has_elevator = any(word in card_text for word in ["winda", "elevator", "lift", "winda"])
+                # Try to find area in structured format first
+                area = None
+                area_structured = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', card_text)
+                if area_structured:
+                    area = extract_number(area_structured.group(1))
+                else:
+                    # Fallback: look for "X m²" anywhere
+                    area_match = re.search(r'(\d+[,.]?\d*)\s*m[²2]', card_text)
+                    if area_match:
+                        area = extract_number(area_match.group(1))
+                
+                # Check elevator in any text - MUST have "winda" to pass
+                has_elevator = any(word in card_text for word in ["winda", "elevator", "lift"])
                 
                 # Check balcony in any text
                 has_balcony = any(word in card_text for word in ["balkon", "taras", "balcony", "loggia"])
@@ -195,10 +208,17 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             
             # Debug: print what we extracted
             print(f"  Checking: {title[:50]}...")
+            print(f"    Link: {link}")
             print(f"    Area: {area}, Rooms: {rooms}, Price: {price}")
             print(f"    Elevator: {has_elevator}, Balcony: {has_balcony}")
             
             # Apply filters - be lenient if data is missing
+            
+            # MUST have elevator mentioned
+            if not has_elevator:
+                print(f"    REJECTED: no elevator mentioned")
+                continue
+            
             if area:
                 if area < MIN_AREA or area > MAX_AREA:
                     print(f"    REJECTED: area {area} not in {MIN_AREA}-{MAX_AREA}")

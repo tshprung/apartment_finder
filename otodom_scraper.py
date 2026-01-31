@@ -104,20 +104,53 @@ def scrape_listings(driver: webdriver.Chrome) -> List[Dict]:
     Note: Floor filtering (not ground/top) cannot be done in URL params,
     must be checked manually in email or needs detail page scraping.
     """
+    import time
+    
     base_url = "https://www.otodom.pl/pl/wyniki/sprzedaz/mieszkanie/dolnoslaskie/wroclaw/wroclaw/wroclaw"
     params = urlencode(SEARCH_PARAMS, safe="[]")
     url = f"{base_url}?{params}"
 
     print(f"Fetching: {url}")
     driver.get(url)
-
-    # Wait for listings to load
+    
+    # Give page time to load
+    time.sleep(5)
+    
+    # Save screenshot for debugging
     try:
-        WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "[data-cy='listing-item']"))
-        )
-    except Exception as e:
-        print(f"Error waiting for listings: {e}")
+        driver.save_screenshot("/tmp/otodom_page.png")
+        print("Screenshot saved to /tmp/otodom_page.png")
+    except:
+        pass
+
+    # Wait for listings to load - try multiple selectors
+    selectors = [
+        "[data-cy='listing-item']",
+        "article[data-cy='listing-item']",
+        "[data-testid='listing-item']",
+        ".css-1sw7q4x",  # Common Otodom class
+    ]
+    
+    listings_found = False
+    for selector in selectors:
+        try:
+            print(f"Trying selector: {selector}")
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+            )
+            listings_found = True
+            print(f"Found elements with selector: {selector}")
+            break
+        except Exception as e:
+            print(f"Selector {selector} failed: {e}")
+            continue
+    
+    if not listings_found:
+        print("No listings found with any selector")
+        print(f"Page title: {driver.title}")
+        print(f"Page source length: {len(driver.page_source)}")
+        # Print first 500 chars of page source
+        print(f"Page source preview: {driver.page_source[:500]}")
         return []
 
     listings = []

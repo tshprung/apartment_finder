@@ -74,6 +74,52 @@ def extract_number(text: str) -> float:
     return 0
 
 
+def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
+    """Fetch detailed info from listing page"""
+    import time
+    
+    try:
+        driver.get(url)
+        time.sleep(2)  # Wait for page load
+        
+        page_text = driver.page_source.lower()
+        
+        details = {
+            "area": None,
+            "rooms": None,
+            "floor": None,
+            "has_elevator": False,
+            "has_balcony": False,
+        }
+        
+        # Extract area - look for "Powierzchnia: X m²"
+        area_match = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', page_text)
+        if area_match:
+            details["area"] = extract_number(area_match.group(1))
+        
+        # Extract rooms - look for "Liczba pokoi: X"
+        rooms_match = re.search(r'liczba pokoi[:\s]*(\d+)', page_text)
+        if rooms_match:
+            details["rooms"] = int(extract_number(rooms_match.group(1)))
+        
+        # Extract floor - look for "Piętro: X" or "Poziom: X"
+        floor_match = re.search(r'(piętro|poziom)[:\s]*(\d+|parter)', page_text)
+        if floor_match:
+            details["floor"] = floor_match.group(2)
+        
+        # Check for elevator
+        details["has_elevator"] = any(word in page_text for word in ["winda", "elevator", "lift"])
+        
+        # Check for balcony
+        details["has_balcony"] = any(word in page_text for word in ["balkon", "taras", "loggia"])
+        
+        return details
+        
+    except Exception as e:
+        print(f"    Error fetching details: {e}")
+        return None
+
+
 def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
     """Scrape OLX listings"""
     import time
@@ -159,22 +205,20 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             except:
                 location = "Wrocław"
             
-            # Try to get area and rooms from card content
+            # Try to get area and rooms from card content first
             try:
                 # Get all text from card
                 card_text = card.text.lower()
                 
-                # Try to find structured data first (like "Liczba pokoi: 2")
-                # Look for rooms in structured format
+                # Try to find structured data in card
                 rooms = None
                 rooms_structured = re.search(r'liczba pokoi[:\s]*(\d+)', card_text)
                 if rooms_structured:
                     rooms = int(extract_number(rooms_structured.group(1)))
                 else:
-                    # Fallback: look for "X pokoi" or "X pokoje" or "X-pokojowe" in general text
+                    # Fallback: look for "X pokoi" in general text
                     rooms_patterns = [
-                        r'(\d+)[-\s]*poko[ij]',  # "2 pokoje", "2-pokojowe"
-                        r'(\d+)\s*rooms?',       # "2 rooms"
+                        r'(\d+)[-\s]*poko[ij]',
                     ]
                     for pattern in rooms_patterns:
                         rooms_match = re.search(pattern, card_text)
@@ -182,7 +226,7 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
                             rooms = int(extract_number(rooms_match.group(1)))
                             break
                 
-                # Try to find area in structured format first
+                # Try to find area in card
                 area = None
                 area_structured = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', card_text)
                 if area_structured:
@@ -193,10 +237,10 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
                     if area_match:
                         area = extract_number(area_match.group(1))
                 
-                # Check elevator in any text - MUST have "winda" to pass
+                # Check elevator in card text
                 has_elevator = any(word in card_text for word in ["winda", "elevator", "lift"])
                 
-                # Check balcony in any text
+                # Check balcony in card text
                 has_balcony = any(word in card_text for word in ["balkon", "taras", "balcony", "loggia"])
                 
             except Exception as e:
@@ -205,6 +249,22 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
                 rooms = None
                 has_elevator = False
                 has_balcony = False
+            
+            # If critical data is missing from card, fetch detail page
+            if area is None or rooms is None or not has_elevator:
+                print(f"  Missing data in card, fetching detail page...")
+                details = fetch_listing_details(driver, link)
+                if details:
+                    if area is None:
+                        area = details["area"]
+                    if rooms is None:
+                        rooms = details["rooms"]
+                    if not has_elevator:
+                        has_elevator = details["has_elevator"]
+                    if not has_balcony:
+                        has_balcony = details["has_balcony"]
+                    
+                    print(f"  Detail page data: Area={area}, Rooms={rooms}, Elevator={has_elevator}, Balcony={has_balcony}")
             
             # Debug: print what we extracted
             print(f"  Checking: {title[:50]}...")

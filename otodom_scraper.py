@@ -64,17 +64,31 @@ def setup_driver() -> webdriver.Chrome:
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--disable-infobars")
+    chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
+    chrome_options.add_experimental_option("prefs", {
+        "profile.default_content_setting_values.notifications": 2,
+    })
 
     # GitHub Actions sets up chromedriver in PATH
     driver = webdriver.Chrome(options=chrome_options)
-    driver.execute_script(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    )
+    
+    # Additional anti-detection
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": """
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['pl-PL', 'pl', 'en-US', 'en']});
+            window.chrome = {runtime: {}};
+        """
+    })
+    
     return driver
 
 
@@ -113,8 +127,17 @@ def scrape_listings(driver: webdriver.Chrome) -> List[Dict]:
     print(f"Fetching: {url}")
     driver.get(url)
     
-    # Give page time to load
+    # Give page time to load and execute JavaScript
     time.sleep(5)
+    
+    # Wait for page to be ready
+    driver.execute_script("return document.readyState") == "complete"
+    
+    # Check if we hit bot detection
+    page_text = driver.page_source.lower()
+    if "captcha" in page_text or "robot" in page_text or "verification" in page_text:
+        print("⚠️ Bot detection triggered!")
+        print("Page may be showing CAPTCHA or verification page")
     
     # Save screenshot for debugging
     try:
@@ -122,13 +145,19 @@ def scrape_listings(driver: webdriver.Chrome) -> List[Dict]:
         print("Screenshot saved to /tmp/otodom_page.png")
     except:
         pass
+    
+    # Scroll to trigger lazy loading
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+    time.sleep(2)
 
     # Wait for listings to load - try multiple selectors
     selectors = [
         "[data-cy='listing-item']",
         "article[data-cy='listing-item']",
         "[data-testid='listing-item']",
-        ".css-1sw7q4x",  # Common Otodom class
+        "a[href*='/pl/oferta/']",  # Any listing link
+        "div[role='article']",
+        ".css-1sw7q4x",
     ]
     
     listings_found = False

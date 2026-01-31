@@ -60,17 +60,25 @@ def save_seen_listings(seen: Set[str]) -> None:
 def setup_driver() -> webdriver.Chrome:
     """Setup Chrome driver with options to avoid detection"""
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
-    service = Service(ChromeDriverManager().install())
+    # Use ChromeDriverManager with explicit path handling
+    driver_path = ChromeDriverManager().install()
+    # Fix for GitHub Actions - get actual chromedriver binary
+    if os.path.isdir(driver_path):
+        driver_path = os.path.join(driver_path, "chromedriver")
+    
+    service = Service(executable_path=driver_path)
     driver = webdriver.Chrome(service=service, options=chrome_options)
     driver.execute_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"

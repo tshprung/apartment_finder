@@ -153,19 +153,35 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             # Check balcony in description  
             has_balcony = any(word in description for word in ["balkon", "taras", "balcony"])
             
-            # Apply filters
-            if area and (area < MIN_AREA or area > MAX_AREA):
-                continue
+            # Debug: print what we extracted
+            print(f"  Checking: {title[:50]}...")
+            print(f"    Area: {area}, Rooms: {rooms}, Price: {price}")
+            
+            # Apply filters - be lenient if data is missing
+            if area:
+                if area < MIN_AREA or area > MAX_AREA:
+                    print(f"    REJECTED: area {area} not in {MIN_AREA}-{MAX_AREA}")
+                    continue
+            else:
+                print(f"    WARNING: No area found, including anyway")
                 
-            if rooms and (rooms < MIN_ROOMS or rooms > MAX_ROOMS):
-                continue
+            if rooms:
+                if rooms < MIN_ROOMS or rooms > MAX_ROOMS:
+                    print(f"    REJECTED: rooms {rooms} not in {MIN_ROOMS}-{MAX_ROOMS}")
+                    continue
+            else:
+                print(f"    WARNING: No rooms found, including anyway")
             
             # Calculate price per m²
             price_per_m2 = None
             if area and area > 0 and price > 0:
                 price_per_m2 = price / area
                 if price_per_m2 > MAX_PRICE_PER_M2:
+                    print(f"    REJECTED: price/m² {price_per_m2:.0f} > {MAX_PRICE_PER_M2}")
                     continue
+            
+            print(f"    ACCEPTED!")
+
             
             listing = {
                 "id": listing_id,

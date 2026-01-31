@@ -149,9 +149,17 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
     
     print(f"Starting to iterate through {len(cards)} cards...")
     
-    for idx, card in enumerate(cards):
+    # Process cards by index to avoid stale element references
+    for idx in range(len(cards)):
         print(f"\n--- Processing card {idx + 1}/{len(cards)} ---")
         try:
+            # Re-find cards to avoid stale elements (page might have changed)
+            cards = driver.find_elements(By.CSS_SELECTOR, "[data-cy='l-card']")
+            if idx >= len(cards):
+                print(f"  Card {idx + 1} no longer exists, skipping")
+                continue
+            
+            card = cards[idx]
             # Extract listing ID from link
             try:
                 link_elem = card.find_element(By.CSS_SELECTOR, "a")

@@ -16,11 +16,9 @@ from urllib.parse import urlencode
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 # Search criteria
@@ -72,14 +70,8 @@ def setup_driver() -> webdriver.Chrome:
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option("useAutomationExtension", False)
 
-    # Use ChromeDriverManager with explicit path handling
-    driver_path = ChromeDriverManager().install()
-    # Fix for GitHub Actions - get actual chromedriver binary
-    if os.path.isdir(driver_path):
-        driver_path = os.path.join(driver_path, "chromedriver")
-    
-    service = Service(executable_path=driver_path)
-    driver = webdriver.Chrome(service=service, options=chrome_options)
+    # GitHub Actions sets up chromedriver in PATH
+    driver = webdriver.Chrome(options=chrome_options)
     driver.execute_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )

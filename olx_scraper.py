@@ -91,18 +91,32 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
     try:
         cards = driver.find_elements(By.CSS_SELECTOR, "[data-cy='l-card']")
         print(f"Found {len(cards)} listing cards")
-    except:
-        print("No listing cards found")
+        
+        if not cards:
+            print("No cards found, trying alternative selector...")
+            cards = driver.find_elements(By.CSS_SELECTOR, "div[data-cy='l-card']")
+            print(f"Found {len(cards)} with alternative selector")
+            
+    except Exception as e:
+        print(f"Error finding cards: {e}")
         return []
     
-    for card in cards:
+    print(f"Starting to iterate through {len(cards)} cards...")
+    
+    for idx, card in enumerate(cards):
+        print(f"\n--- Processing card {idx + 1}/{len(cards)} ---")
         try:
             # Extract listing ID from link
-            link_elem = card.find_element(By.CSS_SELECTOR, "a")
-            link = link_elem.get_attribute("href")
+            try:
+                link_elem = card.find_element(By.CSS_SELECTOR, "a")
+                link = link_elem.get_attribute("href")
+            except Exception as e:
+                print(f"  No link found - {e}")
+                continue
             
             # Skip promoted/external links
             if not link or "olx.pl" not in link:
+                print(f"  Skipping non-OLX link: {link}")
                 continue
                 
             # Extract ID from URL
@@ -112,15 +126,20 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             try:
                 title_elem = card.find_element(By.CSS_SELECTOR, "h6")
                 title = title_elem.text.strip()
-            except:
+            except Exception as e:
+                print(f"  No title - {e}")
                 continue
+            
+            print(f"  Title: {title[:60]}")
             
             # Extract price
             try:
                 price_elem = card.find_element(By.CSS_SELECTOR, "p[data-testid='ad-price']")
                 price_text = price_elem.text.strip()
                 price = extract_number(price_text)
-            except:
+                print(f"  Price text: '{price_text}' -> {price}")
+            except Exception as e:
+                print(f"  No price found - {e}")
                 continue
             
             # Extract location and date from bottom section

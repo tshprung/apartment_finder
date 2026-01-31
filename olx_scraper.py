@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-OLX Real Estate Scraper
-Searches for apartments in Wroclaw matching specific criteria
+OLX Real Estate Scraper - Simplified version
+Collects links first, then fetches details
 """
 
 import json
@@ -17,8 +17,6 @@ from typing import Dict, List, Set
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 
 
 # Search criteria
@@ -80,43 +78,76 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
     
     try:
         driver.get(url)
-        time.sleep(2)  # Wait for page load
+        time.sleep(2)
         
         page_text = driver.page_source.lower()
         
-        details = {
-            "area": None,
-            "rooms": None,
-            "floor": None,
-            "has_elevator": False,
-            "has_balcony": False,
+        # Extract title
+        title = "Unknown"
+        try:
+            title_selectors = ["h1", "h2", "h4", "[data-cy='ad-title']"]
+            for selector in title_selectors:
+                try:
+                    title_elem = driver.find_element(By.CSS_SELECTOR, selector)
+                    title = title_elem.text.strip()
+                    if title and len(title) > 5:
+                        break
+                except:
+                    continue
+        except:
+            pass
+        
+        # Extract price
+        price = 0
+        try:
+            price_selectors = ["[data-cy='ad-price']", ".css-okktvh-Text", "h3"]
+            for selector in price_selectors:
+                try:
+                    price_elem = driver.find_element(By.CSS_SELECTOR, selector)
+                    price_text = price_elem.text.strip()
+                    if "zł" in price_text:
+                        price = extract_number(price_text)
+                        if price > 1000:  # Sanity check
+                            break
+                except:
+                    continue
+        except:
+            pass
+        
+        # Extract location
+        location = "Wrocław"
+        try:
+            location_elem = driver.find_element(By.CSS_SELECTOR, "[data-cy='ad-location']")
+            location = location_elem.text.strip()
+        except:
+            pass
+        
+        # Extract structured data
+        area_match = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', page_text)
+        area = extract_number(area_match.group(1)) if area_match else None
+        
+        rooms_match = re.search(r'liczba pokoi[:\s]*(\d+)', page_text)
+        rooms = int(extract_number(rooms_match.group(1))) if rooms_match else None
+        
+        floor_match = re.search(r'(piętro|poziom)[:\s]*(\d+|parter)', page_text)
+        floor = floor_match.group(2) if floor_match else "N/A"
+        
+        has_elevator = any(word in page_text for word in ["winda", "elevator", "lift"])
+        has_balcony = any(word in page_text for word in ["balkon", "taras", "loggia"])
+        
+        return {
+            "title": title,
+            "price": price,
+            "location": location,
+            "area": area,
+            "rooms": rooms,
+            "floor": floor,
+            "has_elevator": has_elevator,
+            "has_balcony": has_balcony,
         }
         
-        # Extract area - look for "Powierzchnia: X m²"
-        area_match = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', page_text)
-        if area_match:
-            details["area"] = extract_number(area_match.group(1))
-        
-        # Extract rooms - look for "Liczba pokoi: X"
-        rooms_match = re.search(r'liczba pokoi[:\s]*(\d+)', page_text)
-        if rooms_match:
-            details["rooms"] = int(extract_number(rooms_match.group(1)))
-        
-        # Extract floor - look for "Piętro: X" or "Poziom: X"
-        floor_match = re.search(r'(piętro|poziom)[:\s]*(\d+|parter)', page_text)
-        if floor_match:
-            details["floor"] = floor_match.group(2)
-        
-        # Check for elevator
-        details["has_elevator"] = any(word in page_text for word in ["winda", "elevator", "lift"])
-        
-        # Check for balcony
-        details["has_balcony"] = any(word in page_text for word in ["balkon", "taras", "loggia"])
-        
-        return details
-        
     except Exception as e:
-        print(f"    Error fetching details: {e}")
+        print(f"  Error fetching details: {e}")
         return None
 
 
@@ -124,203 +155,92 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
     """Scrape OLX listings"""
     import time
     
-    # Base URL - all apartments in Wrocław for sale
     url = "https://www.olx.pl/nieruchomosci/mieszkania/sprzedaz/wroclaw/"
     
     print(f"Fetching: {url}")
     driver.get(url)
     time.sleep(3)
     
-    listings = []
+    # Collect all listing links first
+    print("Collecting listing links...")
+    listing_links = []
     
-    # Find all listing cards
     try:
         cards = driver.find_elements(By.CSS_SELECTOR, "[data-cy='l-card']")
-        print(f"Found {len(cards)} listing cards")
+        print(f"Found {len(cards)} cards")
         
-        if not cards:
-            print("No cards found, trying alternative selector...")
-            cards = driver.find_elements(By.CSS_SELECTOR, "div[data-cy='l-card']")
-            print(f"Found {len(cards)} with alternative selector")
-            
-    except Exception as e:
-        print(f"Error finding cards: {e}")
-        return []
-    
-    print(f"Starting to iterate through {len(cards)} cards...")
-    
-    # Process cards by index to avoid stale element references
-    for idx in range(len(cards)):
-        print(f"\n--- Processing card {idx + 1}/{len(cards)} ---")
-        try:
-            # Re-find cards to avoid stale elements (page might have changed)
-            cards = driver.find_elements(By.CSS_SELECTOR, "[data-cy='l-card']")
-            if idx >= len(cards):
-                print(f"  Card {idx + 1} no longer exists, skipping")
-                continue
-            
-            card = cards[idx]
-            # Extract listing ID from link
+        for card in cards:
             try:
                 link_elem = card.find_element(By.CSS_SELECTOR, "a")
                 link = link_elem.get_attribute("href")
-            except Exception as e:
-                print(f"  No link found - {e}")
-                continue
-            
-            # Skip promoted/external links - but accept both olx.pl and otodom.pl
-            if not link or not any(domain in link for domain in ["olx.pl", "otodom.pl"]):
-                print(f"  Skipping external link: {link}")
+                
+                if link and any(domain in link for domain in ["olx.pl", "otodom.pl"]):
+                    listing_links.append(link)
+            except:
                 continue
                 
-            # Extract ID from URL
+    except Exception as e:
+        print(f"Error collecting links: {e}")
+        return []
+    
+    print(f"Collected {len(listing_links)} links")
+    
+    # Fetch details for each listing
+    listings = []
+    
+    for idx, link in enumerate(listing_links):
+        print(f"\n--- Listing {idx + 1}/{len(listing_links)} ---")
+        print(f"  {link}")
+        
+        try:
             listing_id = link.split("/")[-1].replace(".html", "")
             
-            # Extract title - try multiple selectors
-            title = None
-            title_selectors = ["h6", "h4", "[data-cy='ad-title']", "a h6", "a h4"]
-            for selector in title_selectors:
-                try:
-                    title_elem = card.find_element(By.CSS_SELECTOR, selector)
-                    title = title_elem.text.strip()
-                    if title:
-                        break
-                except:
-                    continue
-            
-            if not title:
-                print(f"  No title found with any selector")
+            details = fetch_listing_details(driver, link)
+            if not details:
                 continue
             
-            print(f"  Title: {title[:60]}")
+            area = details["area"]
+            rooms = details["rooms"]
+            has_elevator = details["has_elevator"]
+            has_balcony = details["has_balcony"]
+            price = details["price"]
             
-            # Extract price
-            try:
-                price_elem = card.find_element(By.CSS_SELECTOR, "p[data-testid='ad-price']")
-                price_text = price_elem.text.strip()
-                price = extract_number(price_text)
-                print(f"  Price text: '{price_text}' -> {price}")
-            except Exception as e:
-                print(f"  No price found - {e}")
-                continue
+            print(f"  Title: {details['title'][:60]}")
+            print(f"  Area: {area}, Rooms: {rooms}, Price: {price}, Elevator: {has_elevator}")
             
-            # Extract location and date from bottom section
-            try:
-                bottom_elem = card.find_element(By.CSS_SELECTOR, "p[data-testid='location-date']")
-                location_date = bottom_elem.text.strip()
-                parts = location_date.split(" - ")
-                location = parts[0] if parts else "Wrocław"
-            except:
-                location = "Wrocław"
-            
-            # Try to get area and rooms from card content first
-            try:
-                # Get all text from card
-                card_text = card.text.lower()
-                
-                # Try to find structured data in card
-                rooms = None
-                rooms_structured = re.search(r'liczba pokoi[:\s]*(\d+)', card_text)
-                if rooms_structured:
-                    rooms = int(extract_number(rooms_structured.group(1)))
-                else:
-                    # Fallback: look for "X pokoi" in general text
-                    rooms_patterns = [
-                        r'(\d+)[-\s]*poko[ij]',
-                    ]
-                    for pattern in rooms_patterns:
-                        rooms_match = re.search(pattern, card_text)
-                        if rooms_match:
-                            rooms = int(extract_number(rooms_match.group(1)))
-                            break
-                
-                # Try to find area in card
-                area = None
-                area_structured = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', card_text)
-                if area_structured:
-                    area = extract_number(area_structured.group(1))
-                else:
-                    # Fallback: look for "X m²" anywhere
-                    area_match = re.search(r'(\d+[,.]?\d*)\s*m[²2]', card_text)
-                    if area_match:
-                        area = extract_number(area_match.group(1))
-                
-                # Check elevator in card text
-                has_elevator = any(word in card_text for word in ["winda", "elevator", "lift"])
-                
-                # Check balcony in card text
-                has_balcony = any(word in card_text for word in ["balkon", "taras", "balcony", "loggia"])
-                
-            except Exception as e:
-                print(f"  Error parsing card text: {e}")
-                area = None
-                rooms = None
-                has_elevator = False
-                has_balcony = False
-            
-            # If critical data is missing from card, fetch detail page
-            if area is None or rooms is None or not has_elevator:
-                print(f"  Missing data in card, fetching detail page...")
-                details = fetch_listing_details(driver, link)
-                if details:
-                    if area is None:
-                        area = details["area"]
-                    if rooms is None:
-                        rooms = details["rooms"]
-                    if not has_elevator:
-                        has_elevator = details["has_elevator"]
-                    if not has_balcony:
-                        has_balcony = details["has_balcony"]
-                    
-                    print(f"  Detail page data: Area={area}, Rooms={rooms}, Elevator={has_elevator}, Balcony={has_balcony}")
-            
-            # Debug: print what we extracted
-            print(f"  Checking: {title[:50]}...")
-            print(f"    Link: {link}")
-            print(f"    Area: {area}, Rooms: {rooms}, Price: {price}")
-            print(f"    Elevator: {has_elevator}, Balcony: {has_balcony}")
-            
-            # Apply filters - be lenient if data is missing
-            
-            # MUST have elevator mentioned
+            # Apply filters
             if not has_elevator:
-                print(f"    REJECTED: no elevator mentioned")
+                print(f"  REJECTED: no elevator")
                 continue
             
-            if area:
-                if area < MIN_AREA or area > MAX_AREA:
-                    print(f"    REJECTED: area {area} not in {MIN_AREA}-{MAX_AREA}")
-                    continue
-            else:
-                print(f"    WARNING: No area found, including anyway")
-                
-            if rooms:
-                if rooms < MIN_ROOMS or rooms > MAX_ROOMS:
-                    print(f"    REJECTED: rooms {rooms} not in {MIN_ROOMS}-{MAX_ROOMS}")
-                    continue
-            else:
-                print(f"    WARNING: No rooms found, including anyway")
+            if area and (area < MIN_AREA or area > MAX_AREA):
+                print(f"  REJECTED: area {area} not in {MIN_AREA}-{MAX_AREA}")
+                continue
             
-            # Calculate price per m²
+            if rooms and (rooms < MIN_ROOMS or rooms > MAX_ROOMS):
+                print(f"  REJECTED: rooms {rooms} not in {MIN_ROOMS}-{MAX_ROOMS}")
+                continue
+            
+            # Calculate price/m²
             price_per_m2 = None
             if area and area > 0 and price > 0:
                 price_per_m2 = price / area
                 if price_per_m2 > MAX_PRICE_PER_M2:
-                    print(f"    REJECTED: price/m² {price_per_m2:.0f} > {MAX_PRICE_PER_M2}")
+                    print(f"  REJECTED: price/m² {price_per_m2:.0f} > {MAX_PRICE_PER_M2}")
                     continue
             
-            print(f"    ACCEPTED!")
-
+            print(f"  ACCEPTED!")
             
             listing = {
                 "id": listing_id,
-                "title": title,
+                "title": details["title"],
                 "price": f"{price:,.0f} zł" if price else "N/A",
                 "area": f"{area} m²" if area else "N/A",
                 "rooms": rooms if rooms else "N/A",
                 "price_per_m2": f"{price_per_m2:,.0f} zł/m²" if price_per_m2 else "N/A",
-                "location": location,
-                "has_elevator": "✓" if has_elevator else "?",
+                "location": details["location"],
+                "floor": details["floor"],
+                "has_elevator": "✓",
                 "has_balcony": "✓" if has_balcony else "?",
                 "link": link,
             }
@@ -328,7 +248,7 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             listings.append(listing)
             
         except Exception as e:
-            print(f"Error parsing card: {e}")
+            print(f"  Error processing listing: {e}")
             continue
     
     return listings
@@ -344,13 +264,11 @@ def send_email(new_listings: List[Dict]) -> None:
             print(f"    {listing['link']}")
         return
 
-    # Create email
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"OLX: {len(new_listings)} new apartments in Wrocław"
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
 
-    # HTML body
     html_body = f"""
     <html>
     <head>
@@ -382,20 +300,16 @@ def send_email(new_listings: List[Dict]) -> None:
             <div class="detail">
                 <span class="feature">🏢 Elevator: {listing['has_elevator']}</span>
                 <span class="feature">🌿 Balcony: {listing['has_balcony']}</span>
+                <span class="feature">📍 Floor: {listing['floor']}</span>
             </div>
             <div class="detail">📍 {listing['location']}</div>
             <div class="detail"><a href="{listing['link']}">View listing →</a></div>
         </div>
         """
 
-    html_body += """
-    </body>
-    </html>
-    """
-
+    html_body += "</body></html>"
     msg.attach(MIMEText(html_body, "html"))
 
-    # Send email
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(EMAIL_FROM, EMAIL_PASSWORD)
@@ -409,27 +323,20 @@ def main():
     """Main function"""
     print(f"Starting OLX scraper at {datetime.now()}")
 
-    # Load seen listings
     seen = load_seen_listings()
     print(f"Previously seen listings: {len(seen)}")
 
-    # Setup driver
     driver = setup_driver()
 
     try:
-        # Scrape listings
         listings = scrape_olx(driver)
-        print(f"Total listings found (after filters): {len(listings)}")
+        print(f"\nTotal listings found (after filters): {len(listings)}")
 
-        # Filter new listings
         new_listings = [l for l in listings if l["id"] not in seen]
         print(f"New listings: {len(new_listings)}")
 
         if new_listings:
-            # Send email
             send_email(new_listings)
-
-            # Update seen listings
             seen.update(l["id"] for l in new_listings)
             save_seen_listings(seen)
         else:

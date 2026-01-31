@@ -34,11 +34,14 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y google-chrome-stable
         
-    - name: Run scraper
+    - name: Run scrapers
       env:
         EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
         EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-      run: python otodom_scraper.py
+      run: |
+        echo "Running OLX scraper..."
+        python olx_scraper.py
+        echo "OLX scraper done"
     
     - name: Upload debug artifacts
       if: always()
@@ -48,6 +51,7 @@ jobs:
         path: |
           /tmp/otodom_page.png
           seen_listings.json
+          seen_listings_olx.json
         if-no-files-found: ignore
       
     - name: Commit and push changes

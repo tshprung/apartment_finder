@@ -122,12 +122,20 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             # Extract ID from URL
             listing_id = link.split("/")[-1].replace(".html", "")
             
-            # Extract title
-            try:
-                title_elem = card.find_element(By.CSS_SELECTOR, "h6")
-                title = title_elem.text.strip()
-            except Exception as e:
-                print(f"  No title - {e}")
+            # Extract title - try multiple selectors
+            title = None
+            title_selectors = ["h6", "h4", "[data-cy='ad-title']", "a h6", "a h4"]
+            for selector in title_selectors:
+                try:
+                    title_elem = card.find_element(By.CSS_SELECTOR, selector)
+                    title = title_elem.text.strip()
+                    if title:
+                        break
+                except:
+                    continue
+            
+            if not title:
+                print(f"  No title found with any selector")
                 continue
             
             print(f"  Title: {title[:60]}")

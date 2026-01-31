@@ -159,30 +159,44 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             except:
                 location = "Wrocław"
             
-            # Get description to extract details
+            # Try to get area and rooms from card content - look for spans with specific text
             try:
-                desc_elem = card.find_element(By.CSS_SELECTOR, "p.css-1l65h5")
-                description = desc_elem.text.strip().lower()
-            except:
-                description = title.lower()
-            
-            # Parse area from description (look for "X m²")
-            area_match = re.search(r'(\d+[,.]?\d*)\s*m[²2]', description)
-            area = extract_number(area_match.group(1)) if area_match else None
-            
-            # Parse rooms from description
-            rooms_match = re.search(r'(\d+)\s*poko[ij]', description)
-            rooms = int(extract_number(rooms_match.group(1))) if rooms_match else None
-            
-            # Check elevator in description
-            has_elevator = any(word in description for word in ["winda", "elevator", "lift"])
-            
-            # Check balcony in description  
-            has_balcony = any(word in description for word in ["balkon", "taras", "balcony"])
+                # Look for all text in the card
+                card_text = card.text.lower()
+                
+                # Parse area from any text (look for "X m²" or "X m2")
+                area_match = re.search(r'(\d+[,.]?\d*)\s*m[²2]', card_text)
+                area = extract_number(area_match.group(1)) if area_match else None
+                
+                # Parse rooms - look for "X pokoi" or "X pokoje" or "X-pokojowe"
+                rooms_patterns = [
+                    r'(\d+)[-\s]*poko[ij]',  # "2 pokoje", "2-pokojowe"
+                    r'(\d+)\s*rooms?',       # "2 rooms"
+                ]
+                rooms = None
+                for pattern in rooms_patterns:
+                    rooms_match = re.search(pattern, card_text)
+                    if rooms_match:
+                        rooms = int(extract_number(rooms_match.group(1)))
+                        break
+                
+                # Check elevator in any text
+                has_elevator = any(word in card_text for word in ["winda", "elevator", "lift", "winda"])
+                
+                # Check balcony in any text
+                has_balcony = any(word in card_text for word in ["balkon", "taras", "balcony", "loggia"])
+                
+            except Exception as e:
+                print(f"  Error parsing card text: {e}")
+                area = None
+                rooms = None
+                has_elevator = False
+                has_balcony = False
             
             # Debug: print what we extracted
             print(f"  Checking: {title[:50]}...")
             print(f"    Area: {area}, Rooms: {rooms}, Price: {price}")
+            print(f"    Elevator: {has_elevator}, Balcony: {has_balcony}")
             
             # Apply filters - be lenient if data is missing
             if area:

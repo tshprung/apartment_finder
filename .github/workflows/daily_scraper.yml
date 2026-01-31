@@ -40,18 +40,20 @@ jobs:
         EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       run: python otodom_scraper.py
     
-    - name: Upload screenshot on failure
-      if: failure()
+    - name: Upload debug artifacts
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: debug-screenshot
-        path: /tmp/otodom_page.png
+        name: debug-artifacts
+        path: |
+          /tmp/otodom_page.png
+          seen_listings.json
         if-no-files-found: ignore
       
     - name: Commit and push changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add seen_listings.json
+        git add -A
         git diff --quiet && git diff --staged --quiet || git commit -m "Update seen listings [skip ci]"
-        git push
+        git push || true

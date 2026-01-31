@@ -114,9 +114,9 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
                 print(f"  No link found - {e}")
                 continue
             
-            # Skip promoted/external links
-            if not link or "olx.pl" not in link:
-                print(f"  Skipping non-OLX link: {link}")
+            # Skip promoted/external links - but accept both olx.pl and otodom.pl
+            if not link or not any(domain in link for domain in ["olx.pl", "otodom.pl"]):
+                print(f"  Skipping external link: {link}")
                 continue
                 
             # Extract ID from URL

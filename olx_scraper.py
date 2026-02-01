@@ -195,7 +195,7 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
             pass
         
         # Extract structured data
-        area_match = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', page_text)
+        area_match = re.search(r'powierzchnia[:\s"]*(\d+[,.]?\d*)\s*m', page_text)
         area = extract_number(area_match.group(1)) if area_match else None
         
         # Also check title for area if not found
@@ -204,7 +204,7 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
             if title_area:
                 area = extract_number(title_area.group(1))
         
-        rooms_match = re.search(r'liczba pokoi[:\s]*(\d+)', page_text)
+        rooms_match = re.search(r'liczba pokoi[:\s"]*(\d+)', page_text)
         rooms = int(extract_number(rooms_match.group(1))) if rooms_match else None
         
         # Also check for kawalerka/studio (1 room)

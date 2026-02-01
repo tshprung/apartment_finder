@@ -197,8 +197,27 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         floor_match = re.search(r'(piętro|poziom)[:\s]*([\d/]+|parter)', page_text)
         floor = floor_match.group(2) if floor_match else "N/A"
         
-        has_elevator = any(word in page_text for word in ["winda", "elevator", "lift"])
-        has_balcony = any(word in page_text for word in ["balkon", "taras", "loggia"])
+        # Get text from description element specifically (where "winda" appears)
+        try:
+            desc_elem = driver.find_element(By.CSS_SELECTOR, "div.css-19duwlz, div[data-cy='ad_description']")
+            desc_text = desc_elem.text.lower()
+            print(f"  Description found, length: {len(desc_text)} chars")
+        except:
+            desc_text = ""
+            print(f"  WARNING: Could not find description element")
+        
+        # Search in description first (most reliable), then full page
+        has_elevator = any(word in desc_text for word in ["winda", "windą", "elevator", "lift"])
+        has_balcony = any(word in desc_text for word in ["balkon", "balkonem", "taras", "tarasem", "loggia"])
+        
+        if not has_elevator:
+            # Fallback to full page source
+            page_text = driver.page_source.lower()
+            has_elevator = any(word in page_text for word in ["winda", "windą", "elevator", "lift"])
+        if not has_balcony:
+            page_text = driver.page_source.lower()
+            has_balcony = any(word in page_text for word in ["balkon", "balkonem", "taras", "tarasem", "loggia"])
+
         
         return {
             "title": title,

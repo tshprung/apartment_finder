@@ -49,8 +49,8 @@ def save_seen_listings(seen: Set[str]) -> None:
         json.dump(list(seen), f, indent=2)
 
 
-def setup_driver() -> webdriver.Chrome:
-    """Setup Chrome driver"""
+def setup_driver(stealth_mode: bool = False) -> webdriver.Chrome:
+    """Setup Chrome driver with optional stealth mode for otodom.pl"""
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
@@ -59,8 +59,25 @@ def setup_driver() -> webdriver.Chrome:
     chrome_options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     )
+    
+    if stealth_mode:
+        # Extra anti-detection for otodom.pl
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option("useAutomationExtension", False)
 
     driver = webdriver.Chrome(options=chrome_options)
+    
+    if stealth_mode:
+        # Hide webdriver property
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """
+        })
+    
     return driver
 
 
@@ -279,6 +296,7 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
     
     # Fetch details for each listing
     listings = []
+    stealth_driver = None  # Lazy init for otodom URLs
     
     for idx, link in enumerate(listing_links):
         print(f"\n--- Listing {idx + 1}/{len(listing_links)} ---")
@@ -287,7 +305,15 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
         try:
             listing_id = link.split("/")[-1].replace(".html", "")
             
-            details = fetch_listing_details(driver, link)
+            # Use stealth driver for otodom.pl
+            if "otodom.pl" in link:
+                if stealth_driver is None:
+                    print("  Initializing stealth driver for otodom.pl...")
+                    stealth_driver = setup_driver(stealth_mode=True)
+                details = fetch_listing_details(stealth_driver, link)
+            else:
+                details = fetch_listing_details(driver, link)
+            
             if not details:
                 continue
             
@@ -342,6 +368,10 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
         except Exception as e:
             print(f"  Error processing listing: {e}")
             continue
+    
+    # Cleanup stealth driver if created
+    if stealth_driver:
+        stealth_driver.quit()
     
     return listings
 

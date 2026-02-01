@@ -207,13 +207,21 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
             print(f"  WARNING: Could not find description element")
         
         # Search in description first (most reliable), then full page
-        has_elevator = any(word in desc_text for word in ["winda", "windą", "elevator", "lift"])
+        # But exclude negative phrases
+        negative_elevator = any(phrase in desc_text for phrase in ["nie ma wind", "brak wind", "bez wind"])
+        
+        has_elevator = False
+        if not negative_elevator:
+            has_elevator = any(word in desc_text for word in ["winda", "windą", "windy", "windami", "elevator", "lift"])
+        
         has_balcony = any(word in desc_text for word in ["balkon", "balkonem", "taras", "tarasem", "loggia"])
         
-        if not has_elevator:
+        if not has_elevator and not negative_elevator:
             # Fallback to full page source
             page_text = driver.page_source.lower()
-            has_elevator = any(word in page_text for word in ["winda", "windą", "elevator", "lift"])
+            negative_elevator = any(phrase in page_text for phrase in ["nie ma wind", "brak wind", "bez wind"])
+            if not negative_elevator:
+                has_elevator = any(word in page_text for word in ["winda", "windą", "windy", "windami", "elevator", "lift"])
         if not has_balcony:
             page_text = driver.page_source.lower()
             has_balcony = any(word in page_text for word in ["balkon", "balkonem", "taras", "tarasem", "loggia"])

@@ -80,6 +80,29 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         driver.get(url)
         time.sleep(2)
         
+        # Try to accept cookies if popup appears
+        try:
+            cookie_buttons = [
+                "button[data-cy='accept-consent']",
+                "button[id='onetrust-accept-btn-handler']",
+                "button.css-1xh1fol",
+                "[data-testid='consent-accept']",
+            ]
+            for selector in cookie_buttons:
+                try:
+                    cookie_btn = driver.find_element(By.CSS_SELECTOR, selector)
+                    cookie_btn.click()
+                    time.sleep(1)
+                    print(f"  Accepted cookies")
+                    break
+                except:
+                    continue
+        except:
+            pass
+        
+        # Wait a bit more for content to load after cookie acceptance
+        time.sleep(2)
+        
         page_text = driver.page_source.lower()
         
         # Debug: show snippet of page text for troubleshooting
@@ -87,6 +110,14 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
             snippet_start = page_text.find("powierzchnia")
             snippet = page_text[snippet_start:snippet_start+100]
             print(f"  Found 'powierzchnia' in text: {snippet}")
+        
+        # Check if we're stuck on cookie/privacy page
+        if "prywatnoś" in page_text and "powierzchnia" not in page_text:
+            print(f"  WARNING: Stuck on privacy page, retrying...")
+            time.sleep(3)
+            driver.get(url)
+            time.sleep(3)
+            page_text = driver.page_source.lower()
         
         # Extract title
         title = "Unknown"
@@ -106,19 +137,37 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         # Extract price
         price = 0
         try:
-            price_selectors = ["[data-cy='ad-price']", ".css-okktvh-Text", "h3"]
+            # Try multiple selectors
+            price_selectors = [
+                "[data-cy='ad-price']",
+                ".css-okktvh-Text",
+                "h3",
+                "[data-testid='ad-price']",
+                "strong",
+            ]
             for selector in price_selectors:
                 try:
                     price_elem = driver.find_element(By.CSS_SELECTOR, selector)
                     price_text = price_elem.text.strip()
-                    if "zł" in price_text:
+                    if "zł" in price_text and "m²" not in price_text:  # Avoid price/m²
                         price = extract_number(price_text)
-                        if price > 1000:  # Sanity check
+                        if price > 10000:  # Sanity check - at least 10k PLN
+                            print(f"  Found price: {price_text} -> {price}")
                             break
                 except:
                     continue
-        except:
-            pass
+            
+            # Fallback: search page source for price pattern
+            if price == 0:
+                # Look for "XXX XXX zł" pattern not followed by /m²
+                price_pattern = re.search(r'(\d+[\s\d]*)\s*zł(?!\s*/\s*m)', page_text)
+                if price_pattern:
+                    price_str = price_pattern.group(1).replace(" ", "")
+                    price = extract_number(price_str)
+                    if price > 10000:
+                        print(f"  Found price in text: {price}")
+        except Exception as e:
+            print(f"  Error extracting price: {e}")
         
         # Extract location
         location = "Wrocław"

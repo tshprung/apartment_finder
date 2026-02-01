@@ -82,6 +82,12 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         
         page_text = driver.page_source.lower()
         
+        # Debug: show snippet of page text for troubleshooting
+        if "powierzchnia" in page_text:
+            snippet_start = page_text.find("powierzchnia")
+            snippet = page_text[snippet_start:snippet_start+100]
+            print(f"  Found 'powierzchnia' in text: {snippet}")
+        
         # Extract title
         title = "Unknown"
         try:
@@ -126,10 +132,20 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         area_match = re.search(r'powierzchnia[:\s]*(\d+[,.]?\d*)\s*m', page_text)
         area = extract_number(area_match.group(1)) if area_match else None
         
+        # Also check title for area if not found
+        if not area:
+            title_area = re.search(r'(\d+[,.]?\d*)\s*m[²2]', details["title"].lower())
+            if title_area:
+                area = extract_number(title_area.group(1))
+        
         rooms_match = re.search(r'liczba pokoi[:\s]*(\d+)', page_text)
         rooms = int(extract_number(rooms_match.group(1))) if rooms_match else None
         
-        floor_match = re.search(r'(piętro|poziom)[:\s]*(\d+|parter)', page_text)
+        # Also check for kawalerka/studio (1 room)
+        if not rooms and any(word in page_text for word in ["kawalerk", "1 pokój"]):
+            rooms = 1
+        
+        floor_match = re.search(r'(piętro|poziom)[:\s]*([\d/]+|parter)', page_text)
         floor = floor_match.group(2) if floor_match else "N/A"
         
         has_elevator = any(word in page_text for word in ["winda", "elevator", "lift"])

@@ -183,7 +183,7 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         
         # Also check title for area if not found
         if not area:
-            title_area = re.search(r'(\d+[,.]?\d*)\s*m[²2]', details["title"].lower())
+            title_area = re.search(r'(\d+[,.]?\d*)\s*m[²2]', title.lower())
             if title_area:
                 area = extract_number(title_area.group(1))
         

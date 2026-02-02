@@ -332,7 +332,7 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             price = details["price"]
             
             print(f"  Title: {details['title'][:60]}")
-            print(f"  Area: {area}, Rooms: {rooms}, Price: {price}, Elevator: {has_elevator}")
+            print(f"  Area: {area}, Rooms: {rooms}, Floor: {details['floor']}, Price: {price}, Elevator: {has_elevator}")
             
             # Apply filters
             if not has_elevator:

@@ -215,9 +215,12 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
             rooms = 1
         
         # Floor extraction - handles multiple formats:
-        # OLX: "piętro: 1/3", "parter"
+        # OLX: "piętro: 1/3", "parter", "10 piętro"
         # Otodom JSON: "Piętro","value":"1/5"
         floor_match = re.search(r'pi[eę]tro[:\s",value]*([\d/]+|parter)', page_text, re.IGNORECASE)
+        if not floor_match:
+            # Try without colon: "10 piętro" 
+            floor_match = re.search(r'(\d+)\s+pi[eę]tro', page_text, re.IGNORECASE)
         if not floor_match:
             floor_match = re.search(r'poziom[:\s]*([\d/]+|parter)', page_text, re.IGNORECASE)
         floor = floor_match.group(1) if floor_match else "N/A"
@@ -231,8 +234,17 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
             desc_text = ""
             print(f"  WARNING: Could not find description element")
         
+        # Get full page source but exclude "Podobne ogłoszenia" section
+        page_source = driver.page_source.lower()
+        # Remove similar listings section if present
+        if "podobne ogłoszenia" in page_source:
+            similar_idx = page_source.find("podobne ogłoszenia")
+            page_text_clean = page_source[:similar_idx]
+        else:
+            page_text_clean = page_source
+        
         # Search in description first (most reliable), then full page
-        # But exclude negative phrases
+        # But exclude negative phrases and "winda: nie" JSON pattern
         negative_elevator = any(phrase in desc_text for phrase in ["nie ma wind", "brak wind", "bez wind"])
         
         has_elevator = False
@@ -242,14 +254,16 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         has_balcony = any(word in desc_text for word in ["balkon", "balkonem", "taras", "tarasem", "loggia"])
         
         if not has_elevator and not negative_elevator:
-            # Fallback to full page source
-            page_text = driver.page_source.lower()
-            negative_elevator = any(phrase in page_text for phrase in ["nie ma wind", "brak wind", "bez wind"])
+            # Fallback to full page source (excluding similar listings)
+            # Check for negative patterns including JSON-LD
+            negative_elevator = any(phrase in page_text_clean for phrase in [
+                "nie ma wind", "brak wind", "bez wind", 
+                '"winda","value":"nie"', 'winda: nie'
+            ])
             if not negative_elevator:
-                has_elevator = any(word in page_text for word in ["winda", "windą", "windy", "windami", "elevator", "lift"])
+                has_elevator = any(word in page_text_clean for word in ["winda", "windą", "windy", "windami", "elevator", "lift"])
         if not has_balcony:
-            page_text = driver.page_source.lower()
-            has_balcony = any(word in page_text for word in ["balkon", "balkonem", "taras", "tarasem", "loggia"])
+            has_balcony = any(word in page_text_clean for word in ["balkon", "balkonem", "taras", "tarasem", "loggia"])
 
         
         return {

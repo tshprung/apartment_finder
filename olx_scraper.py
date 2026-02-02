@@ -330,6 +330,151 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str, is_otodom: bool = 
         return None
 
 
+def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
+    """Scrape otodom search results page directly to avoid bot detection on individual pages"""
+    import time
+    import random
+    
+    # Otodom search URL for Wrocław apartments for sale, 2-3 rooms, 35-55m²
+    url = "https://www.otodom.pl/pl/wyniki/sprzedaz/mieszkanie/dolnoslaskie/wroclaw/wroclaw/wroclaw?limit=72&roomsNumber=%5BTWO%2CTHREE%5D&areaMin=35&areaMax=55&by=DEFAULT&direction=DESC&viewType=listing"
+    
+    print(f"Fetching otodom search: {url}")
+    driver.get(url)
+    time.sleep(random.uniform(3, 5))
+    
+    # Accept cookies
+    try:
+        cookie_btn = driver.find_element(By.CSS_SELECTOR, "button[id='onetrust-accept-btn-handler']")
+        cookie_btn.click()
+        time.sleep(2)
+        print("  Accepted cookies")
+    except:
+        pass
+    
+    # Scroll to load more results
+    try:
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+        time.sleep(2)
+    except:
+        pass
+    
+    listings = []
+    
+    try:
+        # Find all listing cards
+        cards = driver.find_elements(By.CSS_SELECTOR, "li[data-cy='listing-item']")
+        print(f"Found {len(cards)} otodom search result cards")
+        
+        for idx, card in enumerate(cards):
+            try:
+                # Extract link
+                link_elem = card.find_element(By.CSS_SELECTOR, "a")
+                link = link_elem.get_attribute("href")
+                
+                if not link or "otodom.pl" not in link:
+                    continue
+                
+                listing_id = link.split("/")[-1].replace(".html", "")
+                
+                # Extract data from card
+                card_text = card.text.lower()
+                
+                # Title
+                try:
+                    title_elem = card.find_element(By.CSS_SELECTOR, "p[class*='title']")
+                    title = title_elem.text.strip()
+                except:
+                    title = "Unknown"
+                
+                # Price
+                price = 0
+                try:
+                    price_elem = card.find_element(By.CSS_SELECTOR, "span[class*='price']")
+                    price_text = price_elem.text
+                    price = extract_number(price_text)
+                except:
+                    pass
+                
+                # Area - look for "XX m²" pattern
+                area = None
+                area_match = re.search(r'(\d+[,.]?\d*)\s*m', card_text)
+                if area_match:
+                    area = extract_number(area_match.group(1))
+                
+                # Rooms - look for "X pokoje" or "X pokoi"
+                rooms = None
+                rooms_match = re.search(r'(\d+)\s*poko', card_text)
+                if rooms_match:
+                    rooms = int(rooms_match.group(1))
+                
+                # Floor - look for "piętro: X" or "X/Y"
+                floor = "N/A"
+                floor_match = re.search(r'pi[eę]tro[:\s]*(\d+[/\d]*)', card_text)
+                if floor_match:
+                    floor = floor_match.group(1)
+                else:
+                    floor_match = re.search(r'(\d+)/(\d+)', card_text)
+                    if floor_match:
+                        floor = f"{floor_match.group(1)}/{floor_match.group(2)}"
+                
+                # Elevator - check if mentioned in card (limited but better than nothing)
+                has_elevator = "winda" in card_text or "wind" in card_text
+                
+                # Balcony
+                has_balcony = any(word in card_text for word in ["balkon", "taras", "loggia"])
+                
+                print(f"\n  Card {idx+1}: {title[:50]}")
+                print(f"    Area: {area}, Rooms: {rooms}, Floor: {floor}, Price: {price}, Elevator: {has_elevator}")
+                
+                # Apply filters
+                if not has_elevator:
+                    print(f"    REJECTED: no elevator mentioned")
+                    continue
+                
+                if area and (area < MIN_AREA or area > MAX_AREA):
+                    print(f"    REJECTED: area {area} not in {MIN_AREA}-{MAX_AREA}")
+                    continue
+                
+                if rooms and (rooms < MIN_ROOMS or rooms > MAX_ROOMS):
+                    print(f"    REJECTED: rooms {rooms} not in {MIN_ROOMS}-{MAX_ROOMS}")
+                    continue
+                
+                # Calculate price/m²
+                price_per_m2 = None
+                if area and area > 0 and price > 0:
+                    price_per_m2 = price / area
+                    if price_per_m2 > MAX_PRICE_PER_M2:
+                        print(f"    REJECTED: price/m² {price_per_m2:.0f} > {MAX_PRICE_PER_M2}")
+                        continue
+                
+                print(f"    ACCEPTED!")
+                
+                listing = {
+                    "id": listing_id,
+                    "title": title,
+                    "price": f"{price:,.0f} zł" if price else "N/A",
+                    "area": f"{area} m²" if area else "N/A",
+                    "rooms": rooms if rooms else "N/A",
+                    "price_per_m2": f"{price_per_m2:,.0f} zł/m²" if price_per_m2 else "N/A",
+                    "location": "Wrocław",
+                    "floor": floor,
+                    "has_elevator": "✓",
+                    "has_balcony": "✓" if has_balcony else "?",
+                    "link": link,
+                }
+                
+                listings.append(listing)
+                
+            except Exception as e:
+                print(f"    Error processing card {idx+1}: {e}")
+                continue
+    
+    except Exception as e:
+        print(f"Error scraping otodom search: {e}")
+    
+    return listings
+
+
 def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
     """Scrape OLX listings"""
     import time
@@ -519,12 +664,26 @@ def main():
     print(f"Previously seen listings: {len(seen)}")
 
     driver = setup_driver()
+    stealth_driver = None
 
     try:
-        listings = scrape_olx(driver)
-        print(f"\nTotal listings found (after filters): {len(listings)}")
+        # Scrape OLX
+        olx_listings = scrape_olx(driver)
+        print(f"\nOLX listings found (after filters): {len(olx_listings)}")
+        
+        # Scrape otodom search page
+        print(f"\n{'='*60}")
+        print("Starting otodom search scraping...")
+        print(f"{'='*60}")
+        stealth_driver = setup_driver(stealth_mode=True)
+        otodom_listings = scrape_otodom_search(stealth_driver)
+        print(f"\nOtodom listings found (after filters): {len(otodom_listings)}")
+        
+        # Combine results
+        all_listings = olx_listings + otodom_listings
+        print(f"\nTotal listings found (after filters): {len(all_listings)}")
 
-        new_listings = [l for l in listings if l["id"] not in seen]
+        new_listings = [l for l in all_listings if l["id"] not in seen]
         print(f"New listings: {len(new_listings)}")
 
         if new_listings:
@@ -536,6 +695,8 @@ def main():
 
     finally:
         driver.quit()
+        if stealth_driver:
+            stealth_driver.quit()
 
     print("Done")
 

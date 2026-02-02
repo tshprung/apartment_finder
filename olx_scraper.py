@@ -214,8 +214,13 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         if not rooms and any(word in page_text for word in ["kawalerk", "1 pokój"]):
             rooms = 1
         
-        floor_match = re.search(r'(piętro|poziom)[:\s]*([\d/]+|parter)', page_text)
-        floor = floor_match.group(2) if floor_match else "N/A"
+        # Floor extraction - handles multiple formats:
+        # OLX: "piętro: 1/3", "parter"
+        # Otodom JSON: "Piętro","value":"1/5"
+        floor_match = re.search(r'pi[eę]tro[:\s",value]*([\d/]+|parter)', page_text, re.IGNORECASE)
+        if not floor_match:
+            floor_match = re.search(r'poziom[:\s]*([\d/]+|parter)', page_text, re.IGNORECASE)
+        floor = floor_match.group(1) if floor_match else "N/A"
         
         # Get text from description element specifically (where "winda" appears)
         try:

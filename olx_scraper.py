@@ -379,6 +379,12 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                 # Extract data from card
                 card_text = card.text.lower()
                 
+                # Debug: Print raw text for first card
+                if idx == 0:
+                    print(f"\n  === RAW TEXT FROM FIRST CARD ===")
+                    print(card.text)
+                    print(f"  === END RAW TEXT ===\n")
+                
                 # Title
                 try:
                     title_elem = card.find_element(By.CSS_SELECTOR, "p[data-cy='listing-item-title']")

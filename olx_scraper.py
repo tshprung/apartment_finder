@@ -361,14 +361,14 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
     listings = []
     
     try:
-        # Find all listing cards
-        cards = driver.find_elements(By.CSS_SELECTOR, "li[data-cy='listing-item']")
+        # Find all listing cards - they're <article> elements
+        cards = driver.find_elements(By.CSS_SELECTOR, "article[data-sentry-component='AdvertCard']")
         print(f"Found {len(cards)} otodom search result cards")
         
         for idx, card in enumerate(cards):
             try:
                 # Extract link
-                link_elem = card.find_element(By.CSS_SELECTOR, "a")
+                link_elem = card.find_element(By.CSS_SELECTOR, "a[data-cy='listing-item-link']")
                 link = link_elem.get_attribute("href")
                 
                 if not link or "otodom.pl" not in link:
@@ -381,7 +381,7 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                 
                 # Title
                 try:
-                    title_elem = card.find_element(By.CSS_SELECTOR, "p[class*='title']")
+                    title_elem = card.find_element(By.CSS_SELECTOR, "p[data-cy='listing-item-title']")
                     title = title_elem.text.strip()
                 except:
                     title = "Unknown"
@@ -389,7 +389,7 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                 # Price
                 price = 0
                 try:
-                    price_elem = card.find_element(By.CSS_SELECTOR, "span[class*='price']")
+                    price_elem = card.find_element(By.CSS_SELECTOR, "span[data-sentry-element='MainPrice']")
                     price_text = price_elem.text
                     price = extract_number(price_text)
                 except:

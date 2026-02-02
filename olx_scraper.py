@@ -51,14 +51,28 @@ def save_seen_listings(seen: Set[str]) -> None:
 
 def setup_driver(stealth_mode: bool = False) -> webdriver.Chrome:
     """Setup Chrome driver with optional stealth mode for otodom.pl"""
+    import random
+    
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    )
+    
+    # Randomize viewport size for otodom
+    if stealth_mode:
+        widths = [1366, 1440, 1536, 1600, 1920]
+        heights = [768, 900, 864, 900, 1080]
+        idx = random.randint(0, len(widths) - 1)
+        chrome_options.add_argument(f"--window-size={widths[idx]},{heights[idx]}")
+        # More realistic user agent
+        chrome_options.add_argument(
+            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+    else:
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument(
+            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        )
     
     if stealth_mode:
         # Extra anti-detection for otodom.pl
@@ -69,11 +83,17 @@ def setup_driver(stealth_mode: bool = False) -> webdriver.Chrome:
     driver = webdriver.Chrome(options=chrome_options)
     
     if stealth_mode:
-        # Hide webdriver property
+        # Hide webdriver property and add more realistic navigator properties
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
+                });
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['pl-PL', 'pl', 'en-US', 'en']
                 });
             """
         })
@@ -89,13 +109,38 @@ def extract_number(text: str) -> float:
     return 0
 
 
-def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
+def fetch_listing_details(driver: webdriver.Chrome, url: str, is_otodom: bool = False) -> Dict:
     """Fetch detailed info from listing page"""
     import time
+    import random
     
     try:
         driver.get(url)
-        time.sleep(2)
+        
+        # Human-like random delay
+        if is_otodom:
+            time.sleep(random.uniform(3, 5))
+        else:
+            time.sleep(2)
+        
+        # Human-like scrolling behavior for otodom
+        if is_otodom:
+            try:
+                # Scroll down gradually
+                scroll_height = driver.execute_script("return document.body.scrollHeight")
+                current_position = 0
+                scroll_increment = random.randint(300, 500)
+                
+                while current_position < scroll_height / 2:  # Scroll to middle
+                    current_position += scroll_increment
+                    driver.execute_script(f"window.scrollTo(0, {current_position});")
+                    time.sleep(random.uniform(0.3, 0.7))
+                
+                # Scroll back up a bit
+                driver.execute_script(f"window.scrollTo(0, {current_position - 200});")
+                time.sleep(random.uniform(0.5, 1.0))
+            except:
+                pass
         
         # Try to accept cookies if popup appears
         try:
@@ -109,7 +154,7 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
                 try:
                     cookie_btn = driver.find_element(By.CSS_SELECTOR, selector)
                     cookie_btn.click()
-                    time.sleep(1)
+                    time.sleep(random.uniform(1, 2) if is_otodom else 1)
                     print(f"  Accepted cookies")
                     break
                 except:
@@ -117,8 +162,11 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str) -> Dict:
         except:
             pass
         
-        # Wait a bit more for content to load after cookie acceptance
-        time.sleep(2)
+        # Wait for content to load with random delay
+        if is_otodom:
+            time.sleep(random.uniform(2, 4))
+        else:
+            time.sleep(2)
         
         page_text = driver.page_source.lower()
         
@@ -332,9 +380,9 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
                 if stealth_driver is None:
                     print("  Initializing stealth driver for otodom.pl...")
                     stealth_driver = setup_driver(stealth_mode=True)
-                details = fetch_listing_details(stealth_driver, link)
+                details = fetch_listing_details(stealth_driver, link, is_otodom=True)
             else:
-                details = fetch_listing_details(driver, link)
+                details = fetch_listing_details(driver, link, is_otodom=False)
             
             if not details:
                 continue

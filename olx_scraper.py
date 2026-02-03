@@ -213,13 +213,15 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str, is_otodom: bool = 
         
         # Extract title
         title = "Unknown"
+        title_blacklist = ["powiadomienia", "ogłoszenia", "wyszukaj", "filtry", "otodom", "olx"]
         try:
-            title_selectors = ["h1", "h2", "h4", "[data-cy='ad-title']"]
+            title_selectors = ["[data-cy='ad-title']", "h1.sc-bdVTJa", "h1[data-testid='ad-title']", "h1", "h2", "h4"]
             for selector in title_selectors:
                 try:
                     title_elem = driver.find_element(By.CSS_SELECTOR, selector)
-                    title = title_elem.text.strip()
-                    if title and len(title) > 5:
+                    candidate = title_elem.text.strip()
+                    if candidate and len(candidate) > 5 and candidate.lower() not in title_blacklist:
+                        title = candidate
                         break
                 except:
                     continue
@@ -461,11 +463,13 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                 try:
                     addr_elem = card.find_element(By.CSS_SELECTOR, "p[data-sentry-component='Address']")
                     location = addr_elem.text.strip()
-                except:
-                    pass
+                except Exception as addr_e:
+                    if idx < 3:
+                        print(f"    [DEBUG] Address extraction failed: {addr_e}")
                 
                 print(f"\n  Card {idx+1}: {title[:50]}")
                 print(f"    Area: {area}, Rooms: {rooms}, Floor: {floor}, Price: {price}, Elevator: {has_elevator}")
+                print(f"    Location: {location}")
                 
                 # Apply filters
                 if not has_elevator:

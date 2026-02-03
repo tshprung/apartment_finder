@@ -483,28 +483,17 @@ def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]
                 print(f"    Area: {area}, Rooms: {rooms}, Floor: {floor}, Price: {price}")
                 print(f"    Location: {location}")
                 
-                # Apply filters (area, rooms, price/m² already filtered server-side but double-check)
-                if area and (area < MIN_AREA or area > MAX_AREA):
-                    print(f"    REJECTED: area {area} not in {MIN_AREA}-{MAX_AREA}")
-                    continue
-                
-                if rooms and (rooms < MIN_ROOMS or rooms > MAX_ROOMS):
-                    print(f"    REJECTED: rooms {rooms} not in {MIN_ROOMS}-{MAX_ROOMS}")
-                    continue
-                
+                # Only filter for floor (everything else filtered server-side by URL)
                 if not is_floor_valid(floor):
                     print(f"    REJECTED: floor {floor} (floor 1 or top floor)")
                     continue
                 
-                # Calculate price/m²
+                print(f"    ACCEPTED!")
+                
+                # Price/m² calculation for display only
                 price_per_m2 = None
                 if area and area > 0 and price > 0:
                     price_per_m2 = price / area
-                    if price_per_m2 > MAX_PRICE_PER_M2:
-                        print(f"    REJECTED: price/m² {price_per_m2:.0f} > {MAX_PRICE_PER_M2}")
-                        continue
-                
-                print(f"    ACCEPTED!")
                 
                 listing = {
                     "id": listing_id,

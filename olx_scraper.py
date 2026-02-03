@@ -51,25 +51,32 @@ def save_seen_listings(seen: Set[str]) -> None:
 
 def parse_floor(floor_str: str):
     """Parse floor string like '3/8' -> (current=3, total=8).
-    Returns (current, total) or (None, None) if unparseable."""
+    'parter' or 'parter/4' -> (0, total). Returns (current, total) or (None, None) if unparseable."""
     if not floor_str or floor_str == "N/A":
         return None, None
-    match = re.match(r'^(\d+)/(\d+)$', str(floor_str).strip())
+    s = str(floor_str).strip().lower()
+    # parter/N or N/parter
+    match = re.match(r'^(parter|\d+)/(parter|\d+)$', s)
     if match:
-        return int(match.group(1)), int(match.group(2))
-    # Single number with no total (e.g. "3") - can't validate top floor
+        current = 0 if match.group(1) == "parter" else int(match.group(1))
+        total = 0 if match.group(2) == "parter" else int(match.group(2))
+        return current, total
+    # standalone "parter"
+    if s == "parter":
+        return 0, None
+    # Single number with no total
     try:
-        return int(floor_str), None
+        return int(s), None
     except (ValueError, TypeError):
         return None, None
 
 
 def is_floor_valid(floor_str: str) -> bool:
-    """Reject floor 1 and top floor. Returns True if valid or unknown."""
+    """Reject parter (0), floor 1, and top floor. Returns True if valid or unknown."""
     current, total = parse_floor(floor_str)
     if current is None:
         return True  # unknown floor, don't reject
-    if current == 1:
+    if current <= 1:  # parter (0) or floor 1
         return False
     if total is not None and current >= total:
         return False
@@ -449,13 +456,13 @@ def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]
                 if rooms_match:
                     rooms = int(rooms_match.group(1))
                 
-                # Floor - look for "piętro: X" or "X/Y"
+                # Floor - look for "piętro: X" or "X/Y" or "parter"
                 floor = "N/A"
-                floor_match = re.search(r'pi[eę]tro[:\s]*(\d+[/\d]*)', card_text)
+                floor_match = re.search(r'pi[eę]tro[:\s]*(parter|\d+[/\d]*)', card_text)
                 if floor_match:
                     floor = floor_match.group(1)
                 else:
-                    floor_match = re.search(r'(\d+)/(\d+)', card_text)
+                    floor_match = re.search(r'(parter|\d+)/(parter|\d+)', card_text)
                     if floor_match:
                         floor = f"{floor_match.group(1)}/{floor_match.group(2)}"
                 

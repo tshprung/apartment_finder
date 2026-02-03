@@ -359,13 +359,13 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str, is_otodom: bool = 
         return None
 
 
-def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
+def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]:
     """Scrape otodom search results page directly to avoid bot detection on individual pages"""
     import time
     import random
     
     # Otodom search URL for Wrocław apartments for sale, 2-3 rooms, 35-55m²
-    url = "https://www.otodom.pl/pl/wyniki/sprzedaz/mieszkanie/dolnoslaskie/wroclaw/wroclaw/wroclaw?limit=72&roomsNumber=%5BTWO%2CTHREE%5D&areaMin=35&areaMax=55&by=DEFAULT&direction=DESC&viewType=listing"
+    url = "https://www.otodom.pl/pl/wyniki/sprzedaz/mieszkanie,rynek-wtorny/dolnoslaskie/wroclaw/wroclaw/wroclaw?limit=72&ownerTypeSingleSelect=ALL&areaMin=35&areaMax=55&roomsNumber=%5BTWO%2CTHREE%5D&pricePerMeterMax=12000&extras=%5BBALCONY%2CLIFT%5D&by=DEFAULT&direction=DESC&viewType=listing"
     
     print(f"Fetching otodom search: {url}")
     driver.get(url)
@@ -404,6 +404,13 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                     continue
                 
                 listing_id = link.split("/")[-1].replace(".html", "")
+                
+                # Skip already seen (accepted or rejected)
+                if listing_id in seen:
+                    continue
+                
+                # Mark as seen immediately (caches both accepted and rejected)
+                seen.add(listing_id)
                 
                 # Extract data from card
                 card_text = card.text.lower()
@@ -452,11 +459,9 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                     if floor_match:
                         floor = f"{floor_match.group(1)}/{floor_match.group(2)}"
                 
-                # Elevator - check if mentioned in card (limited but better than nothing)
-                has_elevator = "winda" in card_text or "wind" in card_text
-                
-                # Balcony
-                has_balcony = any(word in card_text for word in ["balkon", "taras", "loggia"])
+                # Elevator & Balcony - guaranteed by URL extras filter (LIFT+BALCONY)
+                has_elevator = True
+                has_balcony = True
                 
                 # Location - extract from Address element
                 location = "Wrocław"
@@ -468,14 +473,10 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                         print(f"    [DEBUG] Address extraction failed: {addr_e}")
                 
                 print(f"\n  Card {idx+1}: {title[:50]}")
-                print(f"    Area: {area}, Rooms: {rooms}, Floor: {floor}, Price: {price}, Elevator: {has_elevator}")
+                print(f"    Area: {area}, Rooms: {rooms}, Floor: {floor}, Price: {price}")
                 print(f"    Location: {location}")
                 
-                # Apply filters
-                if not has_elevator:
-                    print(f"    REJECTED: no elevator mentioned")
-                    continue
-                
+                # Apply filters (area, rooms, price/m² already filtered server-side but double-check)
                 if area and (area < MIN_AREA or area > MAX_AREA):
                     print(f"    REJECTED: area {area} not in {MIN_AREA}-{MAX_AREA}")
                     continue
@@ -485,7 +486,6 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                     continue
                 
                 if not is_floor_valid(floor):
-                    current, total = parse_floor(floor)
                     print(f"    REJECTED: floor {floor} (floor 1 or top floor)")
                     continue
                 
@@ -525,7 +525,7 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
     return listings
 
 
-def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
+def scrape_olx(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]:
     """Scrape OLX listings"""
     import time
     
@@ -569,6 +569,14 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
         
         try:
             listing_id = link.split("/")[-1].replace(".html", "")
+            
+            # Skip already seen (accepted or rejected)
+            if listing_id in seen:
+                print(f"  Skipping (already seen)")
+                continue
+            
+            # Mark as seen immediately
+            seen.add(listing_id)
             
             # Use stealth driver for otodom.pl
             if "otodom.pl" in link:
@@ -722,7 +730,7 @@ def main():
 
     try:
         # Scrape OLX
-        olx_listings = scrape_olx(driver)
+        olx_listings = scrape_olx(driver, seen)
         print(f"\nOLX listings found (after filters): {len(olx_listings)}")
         
         # Scrape otodom search page
@@ -730,22 +738,20 @@ def main():
         print("Starting otodom search scraping...")
         print(f"{'='*60}")
         stealth_driver = setup_driver(stealth_mode=True)
-        otodom_listings = scrape_otodom_search(stealth_driver)
+        otodom_listings = scrape_otodom_search(stealth_driver, seen)
         print(f"\nOtodom listings found (after filters): {len(otodom_listings)}")
         
-        # Combine results
+        # Combine results — all are new (seen check done inside scrape functions)
         all_listings = olx_listings + otodom_listings
-        print(f"\nTotal listings found (after filters): {len(all_listings)}")
+        print(f"\nTotal new listings: {len(all_listings)}")
 
-        new_listings = [l for l in all_listings if l["id"] not in seen]
-        print(f"New listings: {len(new_listings)}")
-
-        if new_listings:
-            send_email(new_listings)
-            seen.update(l["id"] for l in new_listings)
-            save_seen_listings(seen)
+        if all_listings:
+            send_email(all_listings)
         else:
             print("No new listings found")
+        
+        # Always save seen (includes both accepted and rejected)
+        save_seen_listings(seen)
 
     finally:
         driver.quit()

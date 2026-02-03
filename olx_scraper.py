@@ -49,6 +49,33 @@ def save_seen_listings(seen: Set[str]) -> None:
         json.dump(list(seen), f, indent=2)
 
 
+def parse_floor(floor_str: str):
+    """Parse floor string like '3/8' -> (current=3, total=8).
+    Returns (current, total) or (None, None) if unparseable."""
+    if not floor_str or floor_str == "N/A":
+        return None, None
+    match = re.match(r'^(\d+)/(\d+)$', str(floor_str).strip())
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    # Single number with no total (e.g. "3") - can't validate top floor
+    try:
+        return int(floor_str), None
+    except (ValueError, TypeError):
+        return None, None
+
+
+def is_floor_valid(floor_str: str) -> bool:
+    """Reject floor 1 and top floor. Returns True if valid or unknown."""
+    current, total = parse_floor(floor_str)
+    if current is None:
+        return True  # unknown floor, don't reject
+    if current == 1:
+        return False
+    if total is not None and current >= total:
+        return False
+    return True
+
+
 def setup_driver(stealth_mode: bool = False) -> webdriver.Chrome:
     """Setup Chrome driver with optional stealth mode for otodom.pl"""
     import random
@@ -429,6 +456,14 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                 # Balcony
                 has_balcony = any(word in card_text for word in ["balkon", "taras", "loggia"])
                 
+                # Location - extract from Address element
+                location = "Wrocław"
+                try:
+                    addr_elem = card.find_element(By.CSS_SELECTOR, "p[data-sentry-component='Address']")
+                    location = addr_elem.text.strip()
+                except:
+                    pass
+                
                 print(f"\n  Card {idx+1}: {title[:50]}")
                 print(f"    Area: {area}, Rooms: {rooms}, Floor: {floor}, Price: {price}, Elevator: {has_elevator}")
                 
@@ -443,6 +478,11 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                 
                 if rooms and (rooms < MIN_ROOMS or rooms > MAX_ROOMS):
                     print(f"    REJECTED: rooms {rooms} not in {MIN_ROOMS}-{MAX_ROOMS}")
+                    continue
+                
+                if not is_floor_valid(floor):
+                    current, total = parse_floor(floor)
+                    print(f"    REJECTED: floor {floor} (floor 1 or top floor)")
                     continue
                 
                 # Calculate price/m²
@@ -462,7 +502,7 @@ def scrape_otodom_search(driver: webdriver.Chrome) -> List[Dict]:
                     "area": f"{area} m²" if area else "N/A",
                     "rooms": rooms if rooms else "N/A",
                     "price_per_m2": f"{price_per_m2:,.0f} zł/m²" if price_per_m2 else "N/A",
-                    "location": "Wrocław",
+                    "location": location,
                     "floor": floor,
                     "has_elevator": "✓",
                     "has_balcony": "✓" if has_balcony else "?",
@@ -558,6 +598,10 @@ def scrape_olx(driver: webdriver.Chrome) -> List[Dict]:
             
             if rooms and (rooms < MIN_ROOMS or rooms > MAX_ROOMS):
                 print(f"  REJECTED: rooms {rooms} not in {MIN_ROOMS}-{MAX_ROOMS}")
+                continue
+            
+            if not is_floor_valid(details['floor']):
+                print(f"  REJECTED: floor {details['floor']} (floor 1 or top floor)")
                 continue
             
             # Calculate price/m²

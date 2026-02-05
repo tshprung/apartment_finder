@@ -366,7 +366,7 @@ def fetch_listing_details(driver: webdriver.Chrome, url: str, is_otodom: bool = 
         return None
 
 
-def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]:
+def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> tuple[List[Dict], Set[str]]:
     """Scrape otodom search results page directly to avoid bot detection on individual pages"""
     import time
     import random
@@ -395,6 +395,7 @@ def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]
         pass
     
     listings = []
+    all_ids_found = set()  # Track all IDs in search results
     
     try:
         # Find all listing cards - they're <article> elements
@@ -411,6 +412,7 @@ def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]
                     continue
                 
                 listing_id = link.split("/")[-1].replace(".html", "")
+                all_ids_found.add(listing_id)  # Track this ID as found in search
                 
                 # Skip already seen (accepted or rejected)
                 if listing_id in seen:
@@ -518,10 +520,10 @@ def scrape_otodom_search(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]
     except Exception as e:
         print(f"Error scraping otodom search: {e}")
     
-    return listings
+    return listings, all_ids_found
 
 
-def scrape_olx(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]:
+def scrape_olx(driver: webdriver.Chrome, seen: Set[str]) -> tuple[List[Dict], Set[str]]:
     """Scrape OLX listings"""
     import time
     
@@ -551,12 +553,13 @@ def scrape_olx(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]:
                 
     except Exception as e:
         print(f"Error collecting links: {e}")
-        return []
+        return [], set()
     
     print(f"Collected {len(listing_links)} links")
     
     # Fetch details for each listing
     listings = []
+    all_ids_found = set()  # Track all IDs found in search
     stealth_driver = None  # Lazy init for otodom URLs
     
     for idx, link in enumerate(listing_links):
@@ -565,6 +568,7 @@ def scrape_olx(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]:
         
         try:
             listing_id = link.split("/")[-1].replace(".html", "")
+            all_ids_found.add(listing_id)  # Track this ID as found in search
             
             # Skip already seen (accepted or rejected)
             if listing_id in seen:
@@ -646,7 +650,7 @@ def scrape_olx(driver: webdriver.Chrome, seen: Set[str]) -> List[Dict]:
     if stealth_driver:
         stealth_driver.quit()
     
-    return listings
+    return listings, all_ids_found
 
 
 def send_email(new_listings: List[Dict]) -> None:
@@ -726,7 +730,7 @@ def main():
 
     try:
         # Scrape OLX
-        olx_listings = scrape_olx(driver, seen)
+        olx_listings, olx_ids = scrape_olx(driver, seen)
         print(f"\nOLX listings found (after filters): {len(olx_listings)}")
         
         # Scrape otodom search page
@@ -734,7 +738,7 @@ def main():
         print("Starting otodom search scraping...")
         print(f"{'='*60}")
         stealth_driver = setup_driver(stealth_mode=True)
-        otodom_listings = scrape_otodom_search(stealth_driver, seen)
+        otodom_listings, otodom_ids = scrape_otodom_search(stealth_driver, seen)
         print(f"\nOtodom listings found (after filters): {len(otodom_listings)}")
         
         # Combine results — all are new (seen check done inside scrape functions)
@@ -746,7 +750,14 @@ def main():
         else:
             print("No new listings found")
         
-        # Always save seen (includes both accepted and rejected)
+        # Clean stale IDs: remove from seen if not found in current search
+        all_current_ids = olx_ids | otodom_ids
+        stale_ids = seen - all_current_ids
+        if stale_ids:
+            print(f"\nRemoving {len(stale_ids)} stale IDs (no longer in search)")
+            seen -= stale_ids
+        
+        # Always save seen
         save_seen_listings(seen)
 
     finally:
